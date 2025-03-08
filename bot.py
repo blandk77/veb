@@ -172,7 +172,7 @@ async def view_preset(client, message: Message, preset_num: int):
             return
         source = "the default preset"
 
-    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="markdown") # Use Markdown for code formatting
+    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="Markdown") # Use Markdown for code formatting
 
 #Register the view preset command
 for i in range(1,5):
