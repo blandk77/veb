@@ -1,2 +1,7 @@
 pyrogram
 ffmpeg-python
+Flask
+gunicorn
+Jinja2
+werkzeug
+itsdangerous
