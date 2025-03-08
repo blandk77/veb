@@ -10,4 +10,4 @@
 
     COPY . .
 
-    CMD python main.py
+    CMD gunicorn app:app & python main.py
