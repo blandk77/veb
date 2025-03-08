@@ -216,7 +216,7 @@ for i in range (1,5):
 
 # --- Thumbnail Commands ---
 
-@bot.on_message(filters.command("sthumb") & filters.reply & filters.reply.photo)
+@bot.on_message(filters.command("sthumb") & filters.reply & filters.photo)
 async def set_thumbnail_command(client, message):
     """Handles setting a thumbnail."""
     user_id = message.from_user.id
