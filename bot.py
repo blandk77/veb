@@ -17,7 +17,10 @@ bot = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    plugins=dict(root="plugins")  # Enable plugins directory
+    plugins=dict(root="plugins"),
+    connection_retries=5,  # Adjust connection retries as needed
+    connect_timeout=30,    # Increase connection timeout (seconds)
+    sleep_threshold=60      # Increase the sleep threshold
 )
 
 # --- Helper Functions ---
@@ -32,7 +35,7 @@ def format_download_progress(current, total, start_time):
     bar = "⬡" * int(20 * current / total) + " " * (20 - int(20 * current / total)) # Change the progress bar design
 
     progress_message = f"""
-⚠️Please wait...
+⚠️ Please wait...
 
 ☃️ Dᴏᴡɴʟᴏᴀᴅ Sᴛᴀʀᴛᴇᴅ....
 
@@ -54,7 +57,7 @@ async def get_system_stats():
 
     return cpu_usage, ram_usage, disk_usage
 
-async def run_ffmpeg(input_file, preset, output_file, message, client):
+async def run_ffmpeg(input_file, preset, output_file, message, client, total_size):
     """Runs FFmpeg, parses progress, and reports system stats."""
     try:
         command = f"ffmpeg -i '{input_file}' {preset} '{output_file}' -y"  # Added quotes around filenames and -y
@@ -65,7 +68,6 @@ async def run_ffmpeg(input_file, preset, output_file, message, client):
             cwd=os.getcwd()  # Runs ffmpeg where it can be run
         )
         start_time = time.time()
-        total_size = os.path.getsize(input_file)
         compressed_size = 0.0
 
         while True:
@@ -74,6 +76,7 @@ async def run_ffmpeg(input_file, preset, output_file, message, client):
                 break  # Exit loop if ffmpeg is finished.
 
             line = line.decode().strip()
+
             try:
                 compressed_size = os.path.getsize(output_file)
             except FileNotFoundError:
@@ -82,7 +85,7 @@ async def run_ffmpeg(input_file, preset, output_file, message, client):
             cpu_usage, ram_usage, disk_usage = await get_system_stats()  # Get System Stats in Real-time
 
             progress_message = f"""
-🗜 Compressing...
+⚙️ Encoding...
 
 ╭─⌯══ sʏsᴛᴇᴍ | ʜᴛᴏᴘ ══⌯──★
 ├ ᴄᴘᴜ ᴜsᴀɢᴇ: {cpu_usage:.1f}%
@@ -94,11 +97,15 @@ async def run_ffmpeg(input_file, preset, output_file, message, client):
 ╰─══ TG GUY!! ══─★
             """
             # Now, Update.
-            await client.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=message.id,
-                text=progress_message
-            )
+            try:
+                await client.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=message.id,
+                    text=progress_message
+                )
+            except pyrogram.errors.MessageNotModified:
+                pass  # Suppress "MessageNotModified" error (no change in content)
+
 
         returncode = await process.wait()  # Awaits for process to be complete
 
@@ -175,23 +182,22 @@ async def process_preset(client, message: Message, preset_num: int):
 
     try:
         # Send an initial message
-        download_message = await message.reply_text("⚠️Please wait...\nTʀyɪɴɢ Tᴏ DᴏᴡɴLᴏᴀᴅɪɴɢ....")
+        main_message = await message.reply_text("⚠️Please wait...\nTʀyɪɴɢ Tᴏ DᴏᴡɴLᴏᴀᴅɪɴɢ....")
 
         # Download the video or document with progress tracking
+        total_size = media.file_size # Grab File size before download
+
         await client.download_media(
             media,
             file_name=input_file,
             progress=lambda current, total: asyncio.get_event_loop().create_task(
                 client.edit_message_text(
                     chat_id=message.chat.id,
-                    message_id=download_message.id,
+                    message_id=main_message.id,
                     text=format_download_progress(current, total, start_time)
                 )
             )
         )
-
-        # Delete the download message once completed
-        await download_message.delete()
 
         # Get the preset
         user_id = message.from_user.id
@@ -212,32 +218,92 @@ async def process_preset(client, message: Message, preset_num: int):
                 return
 
         # Send an initial message and run FFmpeg
-        encoding_message = await message.reply_text("🗜 Compressing...")  # Send the message
-        success, error_message = await run_ffmpeg(input_file, preset, output_file, encoding_message, client)
+        success, error_message = await run_ffmpeg(input_file, preset, output_file, main_message, client, total_size)
 
         if success:
-            # Send the compressed video back
-            await message.reply_text("Encoding complete! Sending the file...")
+             # UPLOAD now
+            await client.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=main_message.id,
+                text="📤 Uploading"
+            )
             if os.path.exists(output_file):
                 # Attach thumbnail if one exists
                 thumbnail = user_thumbnails.get(user_id)
                 if thumbnail:
-                    await client.send_video(
-                        chat_id=message.chat.id,
-                        video=output_file,
-                        thumb=thumbnail
-                    )
+                    try:
+                        if is_video:
+                            await client.send_video(
+                                chat_id=message.chat.id,
+                                video=output_file,
+                                thumb=thumbnail,
+                                progress=lambda current, total: asyncio.get_event_loop().create_task(
+                                client.edit_message_text(
+                                    chat_id=message.chat.id,
+                                    message_id=main_message.id,
+                                    text=f"Uploading {current * 100 / total:.1f}%"
+                                )
+                            ))
+                        else:
+                            await client.send_document(
+                                chat_id=message.chat.id,
+                                document=output_file,
+                                thumb=thumbnail,
+                                progress=lambda current, total: asyncio.get_event_loop().create_task(
+                                client.edit_message_text(
+                                    chat_id=message.chat.id,
+                                    message_id=main_message.id,
+                                    text=f"Uploading {current * 100 / total:.1f}%"
+                                )
+                            ))
+                    except:
+                         await client.edit_message_text(
+                                chat_id=message.chat.id,
+                                message_id=main_message.id,
+                                text="Uploaded, however, cannot be thumbnailed."
+                           )
                 else:
-                    if is_video:
-                        await client.send_video(chat_id=message.chat.id, video=output_file)
-                    else:
-                        await client.send_document(chat_id=message.chat.id, document=output_file)
+                   try:
+                       if is_video:
+                           await client.send_video(
+                               chat_id=message.chat.id, video=output_file,
+                                progress=lambda current, total: asyncio.get_event_loop().create_task(
+                                client.edit_message_text(
+                                    chat_id=message.chat.id,
+                                    message_id=main_message.id,
+                                    text=f"Uploading {current * 100 / total:.1f}%"
+                                )
+                           ))
 
+                       else:
+                            await client.send_document(
+                                chat_id=message.chat.id, document=output_file,
+                                progress=lambda current, total: asyncio.get_event_loop().create_task(
+                                client.edit_message_text(
+                                    chat_id=message.chat.id,
+                                    message_id=main_message.id,
+                                    text=f"Uploading {current * 100 / total:.1f}%"
+                                )
+                            ))
+                   except:
+                        await client.edit_message_text(
+                                chat_id=message.chat.id,
+                                message_id=main_message.id,
+                                text="Uploaded however, unable to upload."
+                           )
             else:
-                await message.reply_text("Encoding completed, but the output file was not found!")
+                 await client.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=main_message.id,
+                        text="Encoding completed, but the output file was not found!"
+                   )
 
         else:
-            await message.reply_text(f"Encoding failed: {error_message}")
+             await client.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=main_message.id,
+                text=f"Encoding failed: {error_message}"
+             )
 
     except Exception as e:
         print(f"Error processing video: {e}")
@@ -248,7 +314,7 @@ async def process_preset(client, message: Message, preset_num: int):
             os.remove(input_file)
             os.remove(output_file)
         except OSError:
-            pass # Ignore if file doesn't exist
+            pass  # Ignore if file doesn't exist
 
 # Register preset commands
 for i in range(1, 5):
@@ -276,7 +342,7 @@ async def view_preset(client, message: Message, preset_num: int):
             return
         source = "the default preset"
 
-    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="Markdown")  # Use Markdown for code formatting
+    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True)  # Use Markdown for code formatting
 
 # Register the view preset command
 for i in range(1, 5):
