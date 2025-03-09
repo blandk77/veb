@@ -6,3 +6,5 @@ Jinja2
 werkzeug
 itsdangerous
 psutil
+pymongo
+dnspython
