@@ -150,7 +150,7 @@ async def help_command(client, message):
 *   /sthumb - Set a thumbnail by replying to a photo.
 *   /vthumb - View your saved thumbnail.
     """
-    await message.reply_text(help_text, parse_mode="Markdown")
+    await message.reply_text(help_text)
 
 # --- Preset Commands ---
 async def process_preset(client, message: Message, preset_num: int):
@@ -340,7 +340,7 @@ async def view_preset(client, message: Message, preset_num: int):
             return
         source = "the default preset"
 
-    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="html")  # Use Markdown for code formatting
+    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True)  # Use Markdown for code formatting
 
 # Register the view preset command
 for i in range(1, 5):
@@ -419,4 +419,4 @@ if ADMIN_USER_ID:
         user_presets = {}  # Clear all user presets
         await message.reply_text("All user presets have been cleared.")
 
-print("Bot is ready!")
+print("Bot is started")
