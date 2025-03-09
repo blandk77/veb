@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import subprocess
@@ -18,7 +17,6 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     plugins=dict(root="plugins"),
-    connect_timeout=30,    # Increase connection timeout (seconds)
     sleep_threshold=60      # Increase the sleep threshold
 )
 
@@ -44,7 +42,8 @@ def format_download_progress(current, total, start_time):
 ┣ Dᴏɴᴇ : {percentage:.2f}%
 ┣ Sᴩᴇᴇᴅ: {speed:.1f} Mʙ/s
 ┣ Eᴛᴀ: {remaining_time:.0f}s
-╰━━━━━━━━━━━━━━━➣ Join @The_TGguy
+╰━━━━━━━━━━━━━━━➣ 
+Join @The_TGguy
 """
     return progress_message
 
@@ -341,7 +340,7 @@ async def view_preset(client, message: Message, preset_num: int):
             return
         source = "the default preset"
 
-    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True)  # Use Markdown for code formatting
+    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="html")  # Use Markdown for code formatting
 
 # Register the view preset command
 for i in range(1, 5):
