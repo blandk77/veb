@@ -1,3 +1,4 @@
+
 import os
 import asyncio
 import subprocess
@@ -9,7 +10,9 @@ import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pymongo import MongoClient
-from config import API_ID, API_HASH, BOT_TOKEN, BOT_NAME, DEFAULT_FFMPEG_PRESET_1, DEFAULT_FFMPEG_PRESET_2, DEFAULT_FFMPEG_PRESET_3, DEFAULT_FFMPEG_PRESET_4, ADMIN_USER_ID, THUMBNAIL_COLLECTION, DATABASE_NAME, MONGODB_URI
+from typing import Union  # Import the Union type
+from config import API_ID, API_HASH, BOT_TOKEN, BOT_NAME, \
+    DEFAULT_FFMPEG_PRESET_1, DEFAULT_FFMPEG_PRESET_2, DEFAULT_FFMPEG_PRESET_3, DEFAULT_FFMPEG_PRESET_4, ADMIN_USER_ID, THUMBNAIL_COLLECTION, DATABASE_NAME, MONGODB_URI
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -435,7 +438,7 @@ async def save_user_thumbnail(user_id: int, file_id: str):
         logging.error(f"Error saving thumbnail to MongoDB: {e}")
         return False
 
-async def get_user_thumbnail(user_id: int) -> str | None:
+async def get_user_thumbnail(user_id: int) -> Union[str, None]:
     """Retrieves the user's thumbnail from MongoDB."""
     logging.info(f"Getting thumbnail for user {user_id}")
     if mongo_client is None:
@@ -473,5 +476,4 @@ async def set_thumbnail_command(client, message):
             await message.reply_text("Error saving thumbnail.")
 
     except Exception as e:
-        logging.error(f"Error saving thumbnail: {e}")
-      
+    
