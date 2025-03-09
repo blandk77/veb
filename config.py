@@ -16,3 +16,7 @@ DEFAULT_FFMPEG_PRESET_4 = "-c:v libx264 -crf 28 -preset veryfast"
 
 #  Admin User ID (Optional)
 ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", 7465574522)) #  Set to your user ID if you want admin commands
+
+MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb+srv://telegramguy21:tnkIwvbNkJ5U3fZ7@botsuse.bpgag.mongodb.net/?retryWrites=true&w=majority&appName=Botsuse")
+DATABASE_NAME = os.environ.get("DATABASE_NAME", "VEB")
+THUMBNAIL_COLLECTION = os.environ.get("THUMBNAIL_COLLECTION", "VEBthumb")
