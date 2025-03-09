@@ -18,7 +18,6 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     plugins=dict(root="plugins"),
-    connection_retries=5,  # Adjust connection retries as needed
     connect_timeout=30,    # Increase connection timeout (seconds)
     sleep_threshold=60      # Increase the sleep threshold
 )
@@ -60,7 +59,7 @@ async def get_system_stats():
 async def run_ffmpeg(input_file, preset, output_file, message, client, total_size):
     """Runs FFmpeg, parses progress, and reports system stats."""
     try:
-        command = f"ffmpeg -i '{input_file}' {preset} '{output_file}' -y"  # Added quotes around filenames and -y
+        command = f"ffmpeg -i '{input_file}' {preset} '{output_file}' -y"  # Changed command
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=subprocess.PIPE,
