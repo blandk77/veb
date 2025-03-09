@@ -5,19 +5,37 @@ import pyrogram
 import time
 import re
 import psutil
+import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
-from config import API_ID, API_HASH, BOT_TOKEN, BOT_NAME, \
-    DEFAULT_FFMPEG_PRESET_1, DEFAULT_FFMPEG_PRESET_2, DEFAULT_FFMPEG_PRESET_3, DEFAULT_FFMPEG_PRESET_4, ADMIN_USER_ID
+from pymongo import MongoClient
+from config import API_ID, API_HASH, BOT_TOKEN, BOT_NAME, DEFAULT_FFMPEG_PRESET_1, DEFAULT_FFMPEG_PRESET_2, DEFAULT_FFMPEG_PRESET_3, DEFAULT_FFMPEG_PRESET_4, ADMIN_USER_ID, THUMBNAIL_COLLECTION, DATABASE_NAME, MONGODB_URI
 
-# Initialize the bot
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+if MONGODB_URI:
+    try:
+        mongo_client = MongoClient(MONGODB_URI)
+        db = mongo_client[DATABASE_NAME]
+        thumbnail_collection = db[THUMBNAIL_COLLECTION]
+        logging.info("Connected to MongoDB")
+    except Exception as e:
+        logging.error(f"Failed to connect to MongoDB: {e}")
+        mongo_client = None  # Disable MongoDB if connection fails
+else:
+    logging.warning("MONGODB_URI not set.  Thumbnails will not be persistent.")
+    mongo_client = None
+
+# --- Initialize the bot ---
 bot = Client(
     BOT_NAME,
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     plugins=dict(root="plugins"),
-    sleep_threshold=60      # Increase the sleep threshold
+    sleep_threshold=60
 )
 
 # --- Helper Functions ---
@@ -42,8 +60,7 @@ def format_download_progress(current, total, start_time):
 ┣ Dᴏɴᴇ : {percentage:.2f}%
 ┣ Sᴩᴇᴇᴅ: {speed:.1f} Mʙ/s
 ┣ Eᴛᴀ: {remaining_time:.0f}s
-╰━━━━━━━━━━━━━━━➣ 
-Join @The_TGguy
+╰━━━━━━━━━━━━━━━➣ Join @The_TGguy
 """
     return progress_message
 
@@ -57,8 +74,12 @@ async def get_system_stats():
 
 async def run_ffmpeg(input_file, preset, output_file, message, client, total_size):
     """Runs FFmpeg, parses progress, and reports system stats."""
+    logging.info(f"Starting run_ffmpeg with input_file: {input_file}, output_file: {output_file}")
     try:
-        command = f"ffmpeg -i '{input_file}' {preset} '{output_file}' -y"  # Changed command
+        ffmpeg_path = "/usr/bin/ffmpeg"  # Replace with the actual path to ffmpeg
+        command = f"{ffmpeg_path} -i '{input_file}' {preset} '{output_file}' -y"  # Changed command, added ffmpeg_path
+        logging.info(f"FFmpeg command: {command}")
+
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=subprocess.PIPE,
@@ -103,24 +124,27 @@ async def run_ffmpeg(input_file, preset, output_file, message, client, total_siz
                 )
             except pyrogram.errors.MessageNotModified:
                 pass  # Suppress "MessageNotModified" error (no change in content)
+            except Exception as e:
+                logging.error(f"Error editing message during encoding: {e}")  # Log the error
 
 
         returncode = await process.wait()  # Awaits for process to be complete
 
         if returncode != 0:
             error_message = (await process.stderr.read()).decode().strip()  # Gets the error.
-            print(f"FFmpeg error: {error_message}")
+            logging.error(f"FFmpeg error: {error_message}")
             return False, error_message
 
         return True, None  # success and no error
 
     except Exception as e:
-        print(f"Error running FFmpeg: {e}")
+        logging.error(f"Error running FFmpeg: {e}")
         return False, str(e)
+    finally:
+        logging.info("Finished run_ffmpeg")
 
 # --- Bot State (In-memory, replace with database for production) ---
 user_presets = {}  # User-specific preset overrides {user_id: {p1: "...", p2: ...}}
-user_thumbnails = {}  # User-specific thumbnails {user_id: file_id}
 
 # --- Command Handlers ---
 @bot.on_message(filters.command("start"))
@@ -150,11 +174,12 @@ async def help_command(client, message):
 *   /sthumb - Set a thumbnail by replying to a photo.
 *   /vthumb - View your saved thumbnail.
     """
-    await message.reply_text(help_text)
+    await message.reply_text(help_text, parse_mode="Markdown")
 
 # --- Preset Commands ---
 async def process_preset(client, message: Message, preset_num: int):
     """Handles preset commands (/p1, /p2, /p3, /p4)."""
+    logging.info(f"Starting process_preset with preset_num: {preset_num}")
     if not message.reply_to_message or not (message.reply_to_message.video or message.reply_to_message.document):  # Accept videos and documents
         await message.reply_text("Reply to a video or document file to use a preset.")
         return
@@ -177,10 +202,12 @@ async def process_preset(client, message: Message, preset_num: int):
     input_file = f"input{input_file_extension}"  # Use a dynamic filename
     output_file = output_filename  # Filename provided by user
     start_time = time.time()  # Capture start time for accurate eta calculation
+    logging.info(f"Input file: {input_file}, Output file: {output_file}")
 
     try:
         # Send an initial message
         main_message = await message.reply_text("⚠️Please wait...\nTʀyɪɴɢ Tᴏ DᴏᴡɴLᴏᴀᴅɪɴɢ....")
+        logging.info(f"Initial message sent with ID: {main_message.id}")
 
         # Download the video or document with progress tracking
         total_size = media.file_size # Grab File size before download
@@ -196,6 +223,13 @@ async def process_preset(client, message: Message, preset_num: int):
                 )
             )
         )
+        logging.info(f"Download completed. File saved as: {input_file}")
+
+        # Check if the downloaded file exists
+        if not os.path.exists(input_file):
+            await client.edit_message_text(chat_id=message.chat.id, message_id=main_message.id, text=f"Error: Download failed. File '{input_file}' not found.")
+            logging.error(f"Download failed. File '{input_file}' not found.")
+            return
 
         # Get the preset
         user_id = message.from_user.id
@@ -227,7 +261,7 @@ async def process_preset(client, message: Message, preset_num: int):
             )
             if os.path.exists(output_file):
                 # Attach thumbnail if one exists
-                thumbnail = user_thumbnails.get(user_id)
+                thumbnail = await get_user_thumbnail(message.from_user.id)
                 if thumbnail:
                     try:
                         if is_video:
@@ -304,7 +338,7 @@ async def process_preset(client, message: Message, preset_num: int):
              )
 
     except Exception as e:
-        print(f"Error processing video: {e}")
+        logging.error(f"Error processing video: {e}")
         await message.reply_text(f"An error occurred while processing the video: {e}")
     finally:
         # Clean up temporary files
@@ -313,6 +347,7 @@ async def process_preset(client, message: Message, preset_num: int):
             os.remove(output_file)
         except OSError:
             pass  # Ignore if file doesn't exist
+        logging.info("Finished process_preset")
 
 # Register preset commands
 for i in range(1, 5):
@@ -340,7 +375,7 @@ async def view_preset(client, message: Message, preset_num: int):
             return
         source = "the default preset"
 
-    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True)  # Use Markdown for code formatting
+    await message.reply_text(f"Preset {preset_num} ({source}):\n`{preset}`", quote=True, parse_mode="Markdown")  # Use Markdown for code formatting
 
 # Register the view preset command
 for i in range(1, 5):
@@ -382,41 +417,61 @@ for i in range(1, 5):
     async def delete_preset_command_handler(client, message, preset_num=i):
         await delete_preset(client, message, preset_num)
 
-# --- Thumbnail Commands ---
+# --- Thumbnail Commands (MongoDB) ---
+async def save_user_thumbnail(user_id: int, file_id: str):
+    """Saves the user's thumbnail to MongoDB."""
+    logging.info(f"Saving thumbnail for user {user_id}: {file_id}")
+    if mongo_client is None:
+        await logging.error("MongoDB is not configured.  Cannot save thumbnail.")
+        return False
+    try:
+        thumbnail_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"file_id": file_id}},
+            upsert=True  # Creates the document if it doesn't exist
+        )
+        return True
+    except Exception as e:
+        logging.error(f"Error saving thumbnail to MongoDB: {e}")
+        return False
+
+async def get_user_thumbnail(user_id: int) -> str | None:
+    """Retrieves the user's thumbnail from MongoDB."""
+    logging.info(f"Getting thumbnail for user {user_id}")
+    if mongo_client is None:
+        logging.warning("MongoDB is not configured.  Cannot retrieve thumbnail.")
+        return None
+    try:
+        doc = thumbnail_collection.find_one({"user_id": user_id})
+        if doc:
+            file_id = doc["file_id"]
+            logging.info(f"Found thumbnail for user {user_id}: {file_id}")
+            return file_id
+        else:
+            logging.info(f"No thumbnail found for user {user_id}")
+            return None
+    except Exception as e:
+        logging.error(f"Error getting thumbnail from MongoDB: {e}")
+        return None
+
 @bot.on_message(filters.command("sthumb") & filters.reply & filters.photo)
 async def set_thumbnail_command(client, message):
     """Handles setting a thumbnail."""
+    logging.info("set_thumbnail_command called! Message: %s", message)
     if not message.reply_to_message:
         await message.reply_text("Reply to the photo with /sthumb to set it as the thumbnail.")
         return
 
     user_id = message.from_user.id
-    file_id = message.photo.file_id  # Access directly from message.photo
-    user_thumbnails[user_id] = file_id
+    try:
+        file_id = message.photo.file_id  # Access directly from message.photo
+        logging.info(f"file_id: {file_id}")
 
-    await message.reply_text("Thumbnail saved!")
+        if await save_user_thumbnail(user_id, file_id):
+            await message.reply_text("Thumbnail saved!")
+        else:
+            await message.reply_text("Error saving thumbnail.")
 
-@bot.on_message(filters.command("vthumb"))
-async def view_thumbnail_command(client, message):
-    """Handles viewing the saved thumbnail."""
-    user_id = message.from_user.id
-    if user_id in user_thumbnails:
-        file_id = user_thumbnails[user_id]
-        await bot.send_photo(chat_id=message.chat.id, photo=file_id, caption="Your saved thumbnail.")
-    else:
-        await message.reply_text("No saved thumbnail. Send a photo and reply the photo with /sthumb to set one.")
-
-# --- Admin Commands (Optional) ---
-if ADMIN_USER_ID:
-    @bot.on_message(filters.command("admin") & filters.user(ADMIN_USER_ID))
-    async def admin_command(client, message):
-        await message.reply_text("Admin commands are working.")
-
-    # Example: Adding a command to clear all presets for all users
-    @bot.on_message(filters.command("clearallpresets") & filters.user(ADMIN_USER_ID))
-    async def clear_all_presets_command(client, message):
-        global user_presets
-        user_presets = {}  # Clear all user presets
-        await message.reply_text("All user presets have been cleared.")
-
-print("Bot is started")
+    except Exception as e:
+        logging.error(f"Error saving thumbnail: {e}")
+      
